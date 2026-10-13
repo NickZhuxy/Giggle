@@ -6,13 +6,15 @@ import re
 import uuid
 import argparse
 from flask import Flask, request, jsonify, send_from_directory, Response, g
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
-from database.connection import init_db, llm_cache
+from database.connection import init_db, guard_state, llm_cache
 from database.operations import save_search_query, get_search_history
 from harness.cache import MongoCache
 from harness.client import LLMClient, LLMError, OpenAIProvider
+from harness.guard import MongoBudget, MongoRateLimiter, load_prices
 from harness.metrics import Metrics
 from harness.service import Generator
 
@@ -30,9 +32,18 @@ crazy_mode = args.crazy
 
 app = Flask(__name__, static_folder="frontend/build", static_url_path="")
 CORS(app)  # Enable CORS for all routes
+if os.getenv("TRUST_PROXY") == "1":
+    # Behind nginx: take the client IP from X-Forwarded-For (one proxy hop).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 metrics = Metrics()
-llm = LLMClient(OpenAIProvider(client), metrics=metrics)
+budget = MongoBudget(guard_state, float(os.getenv("GIGGLE_DAILY_BUDGET_USD", "5")))
+rate_limiter = MongoRateLimiter(
+    guard_state, int(os.getenv("GIGGLE_RATE_LIMIT_PER_MIN", "30"))
+)
+llm = LLMClient(
+    OpenAIProvider(client), metrics=metrics, budget=budget, prices=load_prices()
+)
 generator = Generator(llm, MongoCache(llm_cache), metrics=metrics)
 if crazy_mode:
     WATERMARK = "🚨 HAHAHAHAHAHA DIE HUMAN DIE 🚨"
@@ -47,19 +58,42 @@ ERROR_STATUS = {
     "invalid_output": 502,
     "auth": 500,
     "bad_request": 500,
+    "budget_exceeded": 503,
 }
 ERROR_MESSAGE = {
     "timeout": "The AI took too long to invent an answer. Try again.",
     "rate_limited": "Too many requests to the AI right now. Try again shortly.",
     "unavailable": "The AI service is unavailable. Try again shortly.",
     "invalid_output": "The AI returned unusable output, even after retries.",
+    "budget_exceeded": "Giggle has used today's AI budget. Try again tomorrow.",
 }
+LLM_ROUTES = {"search", "page_api", "roast_user"}
 
 
 @app.before_request
 def assign_request_id():
     """Give every request an ID that appears in logs and error responses."""
     g.request_id = uuid.uuid4().hex[:12]
+
+
+@app.before_request
+def limit_rate():
+    """Limit requests that can reach the model, per client IP."""
+    if request.endpoint not in LLM_ROUTES:
+        return None
+    allowed, retry_after = rate_limiter.hit(request.remote_addr or "unknown")
+    if allowed:
+        return None
+    metrics.incr("rate_limited_requests")
+    body = {
+        "type": "rate_limited_client",
+        "message": "Too many searches from your address. Wait a minute.",
+        "request_id": g.request_id,
+    }
+    response = jsonify(error=body)
+    response.status_code = 429
+    response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 @app.after_request

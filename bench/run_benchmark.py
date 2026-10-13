@@ -48,7 +48,9 @@ def make_trace(n_requests, n_unique, seed):
 
 
 def is_valid(results):
-    return isinstance(results, list) and bool(results) and all(map(_valid_result, results))
+    return (
+        isinstance(results, list) and bool(results) and all(map(_valid_result, results))
+    )
 
 
 class OriginalPath:

@@ -1,0 +1,52 @@
+{
+  "args": {
+    "requests": 1000,
+    "unique": [
+      200000,
+      20000,
+      3000,
+      600,
+      120
+    ],
+    "concurrency": 8,
+    "seed": 7,
+    "out": "bench/results/2026-10-13"
+  },
+  "rows": [
+    {
+      "distinct_query_pool": 200000,
+      "repeat_share": 0.5349999999999999,
+      "calls_cache_off": 1000,
+      "calls_cache_on": 472,
+      "reduction": 0.528
+    },
+    {
+      "distinct_query_pool": 20000,
+      "repeat_share": 0.5900000000000001,
+      "calls_cache_off": 1000,
+      "calls_cache_on": 419,
+      "reduction": 0.581
+    },
+    {
+      "distinct_query_pool": 3000,
+      "repeat_share": 0.6659999999999999,
+      "calls_cache_off": 1000,
+      "calls_cache_on": 343,
+      "reduction": 0.657
+    },
+    {
+      "distinct_query_pool": 600,
+      "repeat_share": 0.77,
+      "calls_cache_off": 1000,
+      "calls_cache_on": 240,
+      "reduction": 0.76
+    },
+    {
+      "distinct_query_pool": 120,
+      "repeat_share": 0.895,
+      "calls_cache_off": 1000,
+      "calls_cache_on": 127,
+      "reduction": 0.873
+    }
+  ]
+}

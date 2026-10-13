@@ -4,13 +4,15 @@ import app as giigle_app
 from harness.cache import MemoryCache
 from harness.client import LLMClient, ProviderError
 from harness.fake import ScriptedProvider, good_results
+from harness.guard import MemoryBudget, MemoryRateLimiter
 from harness.metrics import Metrics
 from harness.service import Generator
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     giigle_app.app.config['TESTING'] = True
+    monkeypatch.setattr(giigle_app, 'rate_limiter', MemoryRateLimiter(limit=1000))
     return giigle_app.app.test_client()
 
 
@@ -19,10 +21,10 @@ def fake_llm(monkeypatch):
     """Swap the OpenAI-backed client for a scripted one; returns a loader."""
     monkeypatch.setattr(giigle_app, 'save_search_query', lambda q, r: None)
 
-    def load(*outcomes):
+    def load(*outcomes, budget=None):
         provider = ScriptedProvider(outcomes)
         metrics = Metrics()
-        llm = LLMClient(provider, metrics=metrics, sleep=lambda s: None)
+        llm = LLMClient(provider, metrics=metrics, budget=budget, sleep=lambda s: None)
         monkeypatch.setattr(giigle_app, 'metrics', metrics)
         monkeypatch.setattr(giigle_app, 'llm', llm)
         monkeypatch.setattr(giigle_app, 'generator', Generator(llm, MemoryCache(), metrics=metrics))
@@ -130,3 +132,26 @@ def test_roast_user_no_history(client, monkeypatch):
     assert res.status_code == 200
     data = res.get_json()
     assert "can't roast" in data["roast"].lower()
+
+def test_rate_limit_returns_429_with_retry_after(client, monkeypatch, fake_llm):
+    fake_llm(*[good_results("x")] * 5)
+    monkeypatch.setattr(giigle_app, 'rate_limiter', MemoryRateLimiter(limit=2))
+    codes = [client.get(f'/api/search?q=q{i}').status_code for i in range(3)]
+    assert codes == [200, 200, 429]
+    res = client.get('/api/search?q=again')
+    assert int(res.headers["Retry-After"]) > 0
+    assert res.get_json()["error"]["type"] == "rate_limited_client"
+
+def test_rate_limit_ignores_non_llm_routes(client, monkeypatch):
+    monkeypatch.setattr(giigle_app, 'rate_limiter', MemoryRateLimiter(limit=0))
+    monkeypatch.setattr(giigle_app, 'get_search_history', lambda limit: [])
+    assert client.get('/api/search/history').status_code == 200
+    assert client.get('/api/metrics').status_code == 200
+
+def test_budget_exhausted_returns_503(client, fake_llm):
+    budget = MemoryBudget(daily_usd=0.0)
+    provider = fake_llm(good_results("x"), budget=budget)
+    res = client.get('/api/search?q=x')
+    assert res.status_code == 503
+    assert res.get_json()["error"]["type"] == "budget_exceeded"
+    assert provider.calls == 0
