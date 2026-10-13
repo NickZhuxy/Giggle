@@ -27,4 +27,4 @@ jobs:
 
       - name: Run app & frontend tests
         run: |
-          pytest --cov=app --cov=harness tests/test_app.py tests/test_frontend.py tests/test_harness.py --cov-config=.coveragerc
+          pytest --cov=app --cov=harness tests/test_app.py tests/test_frontend.py tests/test_harness.py --cov-config=.coveragerc --cov-fail-under=80

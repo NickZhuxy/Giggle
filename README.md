@@ -99,6 +99,17 @@ Run the backend with `python app.py --crazy` to make the content more absurd and
 
 4. Open http://localhost:3000.
 
+### Run the tests
+
+The tests use a scripted fake provider, so they do not call OpenAI and do not need a key.
+
+```sh
+python -m pip install pytest pytest-cov flask flask-cors pymongo openai python-dotenv mongomock
+OPENAI_API_KEY=test pytest --cov=app --cov=harness tests/test_app.py tests/test_frontend.py tests/test_harness.py
+```
+
+The suite has 41 tests with 85% coverage (lines and branches) of `app.py` and `harness/`. Continuous integration (CI) fails if coverage drops below 80%. `tests/test_db.py` needs a running MongoDB; CI starts one.
+
 ## Project structure
 
 ```text
