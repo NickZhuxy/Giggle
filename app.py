@@ -3,18 +3,18 @@
 import os
 import json
 import re
+import uuid
 import argparse
-from flask import Flask, request, jsonify, send_from_directory, Response
+from flask import Flask, request, jsonify, send_from_directory, Response, g
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
-from database.operations import (
-    save_search_query,
-    get_recent_search_results,
-    save_generated_page,
-    get_generated_page,
-    get_search_history,
-)
+from database.connection import init_db, llm_cache
+from database.operations import save_search_query, get_search_history
+from harness.cache import MongoCache
+from harness.client import LLMClient, LLMError, OpenAIProvider
+from harness.metrics import Metrics
+from harness.service import Generator
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -31,10 +31,63 @@ crazy_mode = args.crazy
 app = Flask(__name__, static_folder="frontend/build", static_url_path="")
 CORS(app)  # Enable CORS for all routes
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+metrics = Metrics()
+llm = LLMClient(OpenAIProvider(client), metrics=metrics)
+generator = Generator(llm, MongoCache(llm_cache), metrics=metrics)
 if crazy_mode:
     WATERMARK = "🚨 HAHAHAHAHAHA DIE HUMAN DIE 🚨"
 else:
     WATERMARK = "🚨 FAKE CONTENT ! DO NOT TRUST 🚨"
+
+# HTTP status for each way an LLM call can fail.
+ERROR_STATUS = {
+    "timeout": 504,
+    "rate_limited": 503,
+    "unavailable": 503,
+    "invalid_output": 502,
+    "auth": 500,
+    "bad_request": 500,
+}
+ERROR_MESSAGE = {
+    "timeout": "The AI took too long to invent an answer. Try again.",
+    "rate_limited": "Too many requests to the AI right now. Try again shortly.",
+    "unavailable": "The AI service is unavailable. Try again shortly.",
+    "invalid_output": "The AI returned unusable output, even after retries.",
+}
+
+
+@app.before_request
+def assign_request_id():
+    """Give every request an ID that appears in logs and error responses."""
+    g.request_id = uuid.uuid4().hex[:12]
+
+
+@app.after_request
+def add_request_id(response):
+    """Echo the request ID so users can quote it in bug reports."""
+    response.headers["X-Request-ID"] = g.get("request_id", "")
+    return response
+
+
+@app.errorhandler(LLMError)
+def handle_llm_error(e: LLMError):
+    """Return a structured error; never leak keys or stack traces to the user."""
+    metrics.incr(f"failed.{e.kind}")
+    # Auth errors from the provider can echo part of the API key; log the kind only.
+    detail = "(withheld)" if e.kind == "auth" else e
+    app.logger.warning(
+        "llm_error request_id=%s kind=%s attempts=%s detail=%s",
+        g.request_id,
+        e.kind,
+        e.attempts,
+        detail,
+    )
+    body = {
+        "type": e.kind,
+        "message": ERROR_MESSAGE.get(e.kind, "The AI service is misconfigured."),
+        "request_id": g.request_id,
+    }
+    return jsonify(error=body), ERROR_STATUS.get(e.kind, 500)
 
 
 def safe_parse_json(text: str):
@@ -68,44 +121,9 @@ def search():
     if not query:
         return jsonify(error="Missing query parameter 'q'"), 400
 
-    # Check cache first
-    cached_results = get_recent_search_results(query)
-    if cached_results:
-        return jsonify(
-            {
-                "results": cached_results,
-                "watermark": WATERMARK,
-            }
-        )
-
-    # Generate new results if not in cache
-    prompt = (
-        f"Generate *exactly* 5 results "
-        f'and output *only* the JSON array (no extra text). "{query}"\n\n'
-        "Respond with *only* a JSON array (no Markdown fences, no comments),\n"
-        "where each element has keys: "
-        "title (string), snippet (string), url (string). Under 500 tokens"
-    )
-
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=500,
-    )
-    raw = response.choices[0].message.content
-    try:
-        results = safe_parse_json(raw)
-        # Save to database
-        save_search_query(query, results)
-    except ValueError as e:
-        results = [{"title": "Parse Error", "snippet": str(e), "url": "#"}]
-
-    return jsonify(
-        {
-            "results": results,
-            "watermark": WATERMARK,
-        }
-    )
+    results, meta = generator.search(query)
+    save_search_query(query, results)  # history feeds /api/roast
+    return jsonify({"results": results, "watermark": WATERMARK, "cache": meta["cache"]})
 
 
 @app.route("/api/page", methods=["GET"])
@@ -115,29 +133,8 @@ def page_api():
     if not url:
         return jsonify(error="Missing `url` parameter"), 400
 
-    # Check if page already exists
-    existing_content = get_generated_page(url)
-    if existing_content:
-        return jsonify({"content": existing_content, "watermark": WATERMARK})
-
-    prompt = (
-        f"Generate a complete HTML page for this URL: {url}\n"
-        "- Use <h1> for the title\n"
-        "- Wrap each paragraph in <p>\n"
-        "- Do NOT output any Markdown fences or code blocks, only raw HTML\n"
-    )
-
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1000,
-    )
-    page_content = response.choices[0].message.content.strip()
-
-    # Save the generated page to database
-    save_generated_page(url, page_content)
-
-    return jsonify({"content": page_content, "watermark": WATERMARK})
+    content, meta = generator.page(url)
+    return jsonify({"content": content, "watermark": WATERMARK, "cache": meta["cache"]})
 
 
 @app.route("/api/search/history", methods=["GET"])
@@ -146,6 +143,18 @@ def search_history():
     limit = int(request.args.get("limit", 10))
     history = get_search_history(limit)
     return jsonify({"history": history})
+
+
+@app.route("/api/metrics", methods=["GET"])
+def metrics_api():
+    """Counters since process start: cache hits, provider calls, retries, errors."""
+    return jsonify(metrics.snapshot())
+
+
+def _nonempty_text(text: str) -> str:
+    if not text.strip():
+        raise ValueError("empty response")
+    return text.strip()
 
 
 @app.route("/api/roast", methods=["GET"])
@@ -172,14 +181,11 @@ def roast_user():
         "Keep it under 200 words."
     )
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=500,
+    # Personal to this history, so never cached; still gets timeouts and retries.
+    completion = llm.complete(
+        prompt, model="gpt-4o", max_tokens=500, validate=_nonempty_text
     )
-
-    roast = response.choices[0].message.content.strip()
-    return jsonify({"roast": roast})
+    return jsonify({"roast": completion.value})
 
 
 @app.route("/", defaults={"path": ""})
@@ -214,4 +220,5 @@ def handle_404(_error):
 
 
 if __name__ == "__main__":
+    init_db()
     app.run(debug=True, host="0.0.0.0", port=5441)

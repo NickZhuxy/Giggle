@@ -79,7 +79,12 @@ export default function Search() {
 
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-      const { results, watermark } = await res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        const { message, request_id } = data.error || {};
+        throw new Error(`${message || 'Search failed.'} (request ${request_id || 'unknown'})`);
+      }
+      const { results, watermark } = data;
       setResults(results);
       setWm(watermark);
       setShowResults(true);
@@ -87,7 +92,7 @@ export default function Search() {
       fetchSearchHistory();
     } catch (err) {
       console.error(err);
-      setResults([{ title: 'Error', snippet: 'Could not fetch results.', url: '#' }]);
+      setResults([{ title: 'Error', snippet: err.message || 'Could not fetch results.', url: '#' }]);
       setShowResults(true);
     } finally {
       stopJokes();

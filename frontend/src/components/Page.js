@@ -47,14 +47,23 @@ export default function Page() {
     startJokes();
 
     fetch(`/api/page?url=${encodeURIComponent(url)}`)
-      .then(res => res.json())
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) {
+          const { message, request_id } = data.error || {};
+          throw new Error(`${message || 'Page failed.'} (request ${request_id || 'unknown'})`);
+        }
+        return data;
+      })
       .then(({ content }) => {
         const clean = content.replace(/```html/g, '').replace(/```/g, '');
         setContent(clean);
       })
       .catch(err => {
         console.error(err);
-        setContent('<h1>Error loading page</h1><p>Sorry!</p>');
+        const div = document.createElement('div');
+        div.textContent = err.message || 'Sorry!';
+        setContent(`<h1>Error loading page</h1><p>${div.innerHTML}</p>`);
       })
       .finally(() => {
         stopJokes();

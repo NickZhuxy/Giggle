@@ -23,6 +23,7 @@ db = client[db_name]
 # Collections
 search_queries = db.search_queries
 generated_pages = db.generated_pages
+llm_cache = db.llm_cache
 
 def init_db():
     """Initialize database with indexes"""
@@ -31,3 +32,4 @@ def init_db():
     search_queries.create_index('timestamp')
     generated_pages.create_index('url', unique=True)
     generated_pages.create_index('generated_at')
+    llm_cache.create_index('expires_at', expireAfterSeconds=0)

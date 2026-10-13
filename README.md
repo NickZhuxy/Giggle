@@ -20,14 +20,14 @@ sequenceDiagram
 
     U->>F: Type "best pizza on Mars"
     F->>B: GET /api/search?q=...
-    B->>DB: Same query in the last 30 minutes?
+    B->>DB: Cached for this query, model, and prompt version?
     alt Cache hit
         DB-->>B: Saved results
     else Cache miss
         B->>AI: "Make 5 results as a JSON array"
         AI-->>B: Title, snippet, and URL for each result
-        B->>B: Remove extra text, parse the JSON
-        B->>DB: Save results
+        B->>B: Check each result, ask again if output is unusable
+        B->>DB: Save only valid results (30 minutes)
     end
     B-->>F: Results + "FAKE CONTENT" watermark
     U->>F: Click a result
@@ -37,7 +37,7 @@ sequenceDiagram
     B-->>F: Invented page + watermark
 ```
 
-Giggle saves each invented page permanently. If you open the same URL again, you see the same page, as with a real website.
+Giggle keeps each invented page until the prompt changes. If you open the same URL again, you see the same page, as with a real website.
 
 ## Architecture
 
@@ -48,8 +48,8 @@ flowchart LR
     end
     subgraph Docker Compose
         NGINX["nginx :3000<br/>static files + /api proxy"]
-        API["Flask API :5441"]
-        MONGO[("MongoDB :27017<br/>search_queries<br/>generated_pages")]
+        API["Flask API :5441<br/>+ LLM harness"]
+        MONGO[("MongoDB :27017<br/>llm_cache<br/>search_queries")]
     end
     LLM["OpenAI API<br/>GPT-4 / GPT-4o"]
 
@@ -62,9 +62,10 @@ flowchart LR
 | Endpoint | What it does | Model | Cache |
 | --- | --- | --- | --- |
 | `GET /api/search?q=` | Invents five search results | GPT-4 | 30 minutes for each query |
-| `GET /api/page?url=` | Invents an HTML page for a URL | GPT-4 | Permanent for each URL |
+| `GET /api/page?url=` | Invents an HTML page for a URL | GPT-4 | Until the prompt version changes |
 | `GET /api/search/history` | Lists your recent searches | — | — |
 | `GET /api/roast` | Writes a joke about your last 10 searches | GPT-4o | None |
+| `GET /api/metrics` | Shows counters for cache hits, provider calls, retries, and errors | — | — |
 
 Run the backend with `python app.py --crazy` to make the content more absurd and to change the watermark.
 
@@ -101,16 +102,63 @@ Run the backend with `python app.py --crazy` to make the content more absurd and
 ## Project structure
 
 ```text
-app.py              Flask API, prompts, and JSON clean-up
-database/           MongoDB connection, models, and cache queries
+app.py              Flask API routes and structured errors
+harness/            LLM client, output checks, cache, coalescing, and metrics
+bench/              Benchmark with simulated faults, and saved results
+database/           MongoDB connection, models, and history queries
 frontend/           React app, nginx settings, and Dockerfile
-tests/              pytest tests for the API, the database, and static file serving
+tests/              pytest tests for the API, the harness, the database, and static file serving
 .github/workflows/  Lint, tests, and a manual Docker Hub deployment
 ```
 
-## Roadmap
+## Reliable LLM calls
 
-The next stage makes the LLM calls reliable and measurable. It adds one shared client with timeouts and bounded retries, schema checks after JSON repair, cache keys that include the prompt version, and a repeatable cost and latency benchmark. These items are planned. They are not in the code yet.
+A model API can be slow, fail, or return text that is not valid JSON. Every LLM call in Giggle goes through one harness (`harness/`) that makes this behavior predictable.
+
+```mermaid
+flowchart LR
+    REQ["Request"] --> KEY["Cache key<br/>query + model +<br/>prompt version"]
+    KEY --> HIT{"In cache?"}
+    HIT -- yes --> OUT["Response"]
+    HIT -- no --> SF["Single-flight<br/>one call per key"]
+    SF --> CALL["Provider call<br/>with timeout"]
+    CALL --> VAL{"Valid output?"}
+    VAL -- yes --> SAVE["Save to cache"] --> OUT
+    VAL -- "no / timeout / 429" --> RETRY{"Attempts and<br/>deadline left?"}
+    RETRY -- yes --> CALL
+    RETRY -- no --> ERR["Structured error<br/>+ request ID"]
+    CALL -- "auth / bad request" --> ERR
+```
+
+- **Validation.** The harness repairs JSON, then checks the type and content of each result. If a response is cut off, the harness keeps only complete results. It asks again if fewer than three are valid.
+- **Bounded retries.** Timeouts, rate limits, server errors, and unusable output cause a retry with exponential backoff. One request makes at most three calls and stops at a 45-second deadline. Authentication and request errors do not cause a retry.
+- **Correct caching.** The cache key contains the normalized query, the model, the prompt version, and the generation settings. A new prompt version makes old entries unusable. Failed calls are never cached.
+- **Coalescing.** When identical requests arrive at the same time, only the first request calls the model. The other requests wait and get the same result. This works in one server process only.
+- **Clear errors.** The API returns a `5xx` status with an error type and a request ID. It never returns keys or stack traces.
+
+### Benchmark
+
+The benchmark sends one request trace through four request paths. Each path adds one mechanism to the path before it. A simulated provider adds faults and latency.
+
+```sh
+python -m bench.run_benchmark --out bench/results/latest
+```
+
+| Metric | A original | B harness | C + cache | D + coalescing |
+| --- | ---: | ---: | ---: | ---: |
+| Valid responses | 85.8% | 98.6% | 99.5% | 99.9% |
+| Invalid output served to user | 11.8% | 0.0% | 0.0% | 0.0% |
+| Errors returned | 2.4% | 1.4% | 0.5% | 0.1% |
+| Provider calls per request | 0.23 | 1.30 | 0.29 | 0.17 |
+| p95 latency (ms) | 111 | 326 | 178 | 151 |
+
+Conditions: 400 requests over 60 distinct queries with repeats, 16 concurrent clients, mean of 3 seeds. For each provider call, the simulated provider adds 25% faults: timeouts 4%, rate limits 6%, prose instead of JSON 6%, truncated output 5%, and wrong fields 4%. These numbers come from a simulation. They are not measurements of the OpenAI API. See [`bench/results/2026-10-13/`](bench/results/2026-10-13/) for the results of each seed.
+
+What the results show:
+
+- The original path cached any output that it could parse, including results with wrong fields. It then served that output again for 30 minutes.
+- Retries make the harness correct, but they cost more calls (B). The cache removes most of that cost (C). Coalescing removes duplicate calls for popular queries: 40% fewer provider calls than C.
+- The harness has a higher p95 latency than the original path, because a retry takes time. A fast error is not a useful response.
 
 ## Team
 
