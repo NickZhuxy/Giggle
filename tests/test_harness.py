@@ -400,3 +400,111 @@ def test_rate_limiters_fixed_window():
         assert limiter.hit("other-ip")[0]
         now[0] = 180.0  # next window
         assert limiter.hit("ip")[0]
+
+
+# --- fallback and circuit breaker -----------------------------------------------
+
+from harness.cache import MongoLease
+from harness.fallback import CircuitBreaker, FallbackProvider
+
+
+def test_breaker_opens_after_threshold_then_half_opens():
+    now = [0.0]
+    breaker = CircuitBreaker(threshold=2, cooldown_s=10, clock=lambda: now[0])
+    breaker.record_failure()
+    assert breaker.allow()
+    breaker.record_failure()
+    assert breaker.state == "open" and not breaker.allow()
+    now[0] = 10
+    assert breaker.allow()  # one trial call
+    assert not breaker.allow()  # no second concurrent trial
+    breaker.record_success()
+    assert breaker.state == "closed" and breaker.allow()
+
+
+def test_fallback_serves_secondary_when_primary_is_down():
+    primary = ScriptedProvider([ProviderError("unavailable")])
+    secondary = ScriptedProvider([good_results("q")])
+    provider = FallbackProvider(primary, secondary, "backup-model")
+    out = make_client(provider).complete(
+        "p", model="main", max_tokens=10, validate=parse_search_results
+    )
+    assert out.model == "backup-model" and out.attempts == 1
+
+
+def test_fallback_does_not_hide_auth_errors():
+    provider = FallbackProvider(
+        ScriptedProvider([ProviderError("auth")]),
+        ScriptedProvider([good_results("q")]),
+        "backup",
+    )
+    with pytest.raises(LLMError) as e:
+        make_client(provider).complete("p", model="main", max_tokens=10)
+    assert e.value.kind == "auth"
+
+
+def test_open_breaker_skips_primary():
+    primary = ScriptedProvider([])
+    breaker = CircuitBreaker(threshold=1)
+    breaker.record_failure()
+    provider = FallbackProvider(
+        primary, ScriptedProvider([good_results("q")]), "b", breaker
+    )
+    provider.complete("p", model="main", max_tokens=10, timeout=1)
+    assert primary.calls == 0
+
+
+def test_fallback_answers_are_served_but_not_cached():
+    provider = FallbackProvider(
+        ScriptedProvider([ProviderError("timeout"), good_results("q")]),
+        ScriptedProvider([good_results("q")]),
+        "backup",
+    )
+    gen = Generator(make_client(provider), MemoryCache(), search_model="main")
+    _, first = gen.search("cats")
+    _, second = gen.search("cats")
+    assert first["model"] == "backup" and second["cache"] == "miss"
+    assert second["model"] == "main"
+    assert gen.search("cats")[1]["cache"] == "hit"
+
+
+# --- cross-process coalescing --------------------------------------------------------
+
+
+def test_lease_is_exclusive_and_expires():
+    col = mongomock.MongoClient().db.inflight
+    a, b = MongoLease(col, ttl_s=60), MongoLease(col, ttl_s=60)
+    assert a.acquire("k") and not b.acquire("k")
+    a.release("k")
+    assert b.acquire("k")
+    col.update_one({"_id": "k"}, {"$set": {"expires_at": datetime.now(timezone.utc)}})
+    assert a.acquire("k")  # expired lease is taken over
+
+
+def test_two_workers_share_one_generation():
+    db = mongomock.MongoClient().db
+    cache = MongoCache(db.llm_cache)
+
+    class SlowProvider(ScriptedProvider):
+        def complete(self, *a, **kw):
+            time.sleep(0.2)
+            return super().complete(*a, **kw)
+
+    provider = SlowProvider([good_results("q")] * 2)
+    # Two Generators = two worker processes: separate in-process SingleFlight.
+    workers = [
+        Generator(
+            make_client(provider), cache, lease=MongoLease(db.inflight, poll_s=0.01)
+        )
+        for _ in range(2)
+    ]
+    results = []
+    t1 = threading.Thread(
+        target=lambda: results.append(workers[0].search("q")[1]["cache"])
+    )
+    t1.start()
+    time.sleep(0.05)  # worker 0 holds the lease
+    results.append(workers[1].search("q")[1]["cache"])
+    t1.join()
+    assert provider.calls == 1
+    assert sorted(results) == ["miss", "peer"]

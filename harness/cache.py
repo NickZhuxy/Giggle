@@ -6,6 +6,8 @@ input, the model, the prompt version, and generation parameters. Bumping
 """
 
 import hashlib
+import os
+import uuid
 import json
 import threading
 import time
@@ -129,3 +131,55 @@ class SingleFlight:
             with self._lock:
                 del self._calls[key]
             call.done.set()
+
+
+class MongoLease:
+    """Cross-process single-flight: one worker generates a key, others wait.
+
+    ``acquire`` inserts a lease document whose ``_id`` is the cache key; the
+    unique ``_id`` makes the insert succeed for exactly one worker. A lease
+    expires after ``ttl_s`` so a crashed worker cannot block a key forever.
+    """
+
+    def __init__(
+        self, collection, ttl_s=60.0, poll_s=0.05, wait_s=50.0, sleep=time.sleep
+    ):
+        self.col = collection
+        self.ttl_s = ttl_s
+        self.poll_s = poll_s
+        self.wait_s = wait_s
+        self.sleep = sleep
+        self.owner = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+    def acquire(self, key) -> bool:
+        from pymongo.errors import DuplicateKeyError
+
+        now = datetime.now(timezone.utc)
+        self.col.delete_one({"_id": key, "expires_at": {"$lte": now}})
+        try:
+            self.col.insert_one(
+                {
+                    "_id": key,
+                    "owner": self.owner,
+                    "expires_at": now + timedelta(seconds=self.ttl_s),
+                }
+            )
+            return True
+        except DuplicateKeyError:
+            return False
+
+    def release(self, key):
+        self.col.delete_one({"_id": key, "owner": self.owner})
+
+    def wait_for(self, key, lookup):
+        """Poll ``lookup(key)`` until it returns a value or the lease ends."""
+        waited = 0.0
+        while waited < self.wait_s:
+            value = lookup(key)
+            if value is not None:
+                return value
+            if self.col.find_one({"_id": key}) is None:
+                return lookup(key)  # leader finished (or failed) since last poll
+            self.sleep(self.poll_s)
+            waited += self.poll_s
+        return None

@@ -76,18 +76,58 @@ class FaultyProvider:
 
     def complete(self, prompt, *, model, max_tokens, timeout):
         outcome, latency = self._draw()
-        query = prompt.rsplit('"', 2)[-2] if '"' in prompt else "query"
         if outcome == "timeout":
             self.sleep(min(timeout, latency * 3))
             raise ProviderError("timeout", "simulated timeout")
         self.sleep(latency)
         if outcome == "rate_limited":
             raise ProviderError("rate_limited", "simulated 429")
-        text = good_results(query)
+        text = self._good_text(prompt)
         if outcome == "bad_json":
             text = "Sure! Here are some results you might like."
         elif outcome == "truncated":
             text = text[: len(text) // 3]
         elif outcome == "wrong_schema":
             text = json.dumps([{"name": "x", "link": "y"}] * 5)
-        return text, {"prompt_tokens": 60, "completion_tokens": 250}
+        return text, {"prompt_tokens": 60, "completion_tokens": 250, "model": model}
+
+    @staticmethod
+    def _good_text(prompt):
+        """A well-formed answer for whichever prompt Giggle sent."""
+        if "HTML page for this URL:" in prompt:
+            url = prompt.split("URL:", 1)[1].split("\n", 1)[0].strip()
+            return (
+                f"<h1>{url}</h1><p>This page was invented by Giggle's demo "
+                "provider. No model and no website were involved.</p>"
+            )
+        if "roast" in prompt:
+            return "Your search history is so random, even the simulator is confused."
+        query = prompt.rsplit('"', 2)[-2] if '"' in prompt else "query"
+        return good_results(query)
+
+
+class OutageProvider:
+    """Wrap a provider; during ``[start_s, end_s)`` every call hangs, then times out."""
+
+    def __init__(self, inner, start_s, end_s, clock=time.monotonic, sleep=time.sleep):
+        self.inner = inner
+        self.start_s = start_s
+        self.end_s = end_s
+        self.clock = clock
+        self.sleep = sleep
+        self.t0 = clock()
+        self.calls_during_outage = 0
+        self._lock = threading.Lock()
+
+    def in_outage(self):
+        return self.start_s <= self.clock() - self.t0 < self.end_s
+
+    def complete(self, prompt, *, model, max_tokens, timeout):
+        if self.in_outage():
+            with self._lock:
+                self.calls_during_outage += 1
+            self.sleep(timeout)
+            raise ProviderError("timeout", "simulated outage")
+        return self.inner.complete(
+            prompt, model=model, max_tokens=max_tokens, timeout=timeout
+        )

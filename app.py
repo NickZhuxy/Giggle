@@ -10,10 +10,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
-from database.connection import init_db, guard_state, llm_cache
+from database.connection import init_db, guard_state, inflight, llm_cache
 from database.operations import save_search_query, get_search_history
-from harness.cache import MongoCache
+from harness.cache import MongoCache, MongoLease
 from harness.client import LLMClient, LLMError, OpenAIProvider
+from harness.fake import FaultyProvider
+from harness.fallback import FallbackProvider
 from harness.guard import MongoBudget, MongoRateLimiter, load_prices
 from harness.metrics import Metrics
 from harness.service import Generator
@@ -41,10 +43,26 @@ budget = MongoBudget(guard_state, float(os.getenv("GIGGLE_DAILY_BUDGET_USD", "5"
 rate_limiter = MongoRateLimiter(
     guard_state, int(os.getenv("GIGGLE_RATE_LIMIT_PER_MIN", "30"))
 )
-llm = LLMClient(
-    OpenAIProvider(client), metrics=metrics, budget=budget, prices=load_prices()
+provider = OpenAIProvider(client)
+if os.getenv("GIGGLE_FAKE_LLM") == "1":
+    # Demo mode: no API key needed; a simulated provider invents everything.
+    provider = FaultyProvider({}, latency_ms=(300, 900))
+elif os.getenv("FALLBACK_API_KEY"):
+    # Any OpenAI-compatible API works; DeepSeek is the default secondary.
+    backup = OpenAI(
+        api_key=os.getenv("FALLBACK_API_KEY"),
+        base_url=os.getenv("FALLBACK_BASE_URL", "https://api.deepseek.com"),
+    )
+    provider = FallbackProvider(
+        provider,
+        OpenAIProvider(backup),
+        os.getenv("FALLBACK_MODEL", "deepseek-flash"),
+        metrics=metrics,
+    )
+llm = LLMClient(provider, metrics=metrics, budget=budget, prices=load_prices())
+generator = Generator(
+    llm, MongoCache(llm_cache), lease=MongoLease(inflight), metrics=metrics
 )
-generator = Generator(llm, MongoCache(llm_cache), metrics=metrics)
 if crazy_mode:
     WATERMARK = "🚨 HAHAHAHAHAHA DIE HUMAN DIE 🚨"
 else:
@@ -157,7 +175,14 @@ def search():
 
     results, meta = generator.search(query)
     save_search_query(query, results)  # history feeds /api/roast
-    return jsonify({"results": results, "watermark": WATERMARK, "cache": meta["cache"]})
+    return jsonify(
+        {
+            "results": results,
+            "watermark": WATERMARK,
+            "cache": meta["cache"],
+            "model": meta["model"],
+        }
+    )
 
 
 @app.route("/api/page", methods=["GET"])
@@ -168,7 +193,14 @@ def page_api():
         return jsonify(error="Missing `url` parameter"), 400
 
     content, meta = generator.page(url)
-    return jsonify({"content": content, "watermark": WATERMARK, "cache": meta["cache"]})
+    return jsonify(
+        {
+            "content": content,
+            "watermark": WATERMARK,
+            "cache": meta["cache"],
+            "model": meta["model"],
+        }
+    )
 
 
 @app.route("/api/search/history", methods=["GET"])

@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 5441
 
 # Run the app
-CMD ["python", "app.py"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]

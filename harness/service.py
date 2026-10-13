@@ -34,6 +34,7 @@ class Generator:
         page_ttl_s=None,
         prompt_version=PROMPT_VERSION,
         coalesce=True,
+        lease=None,
         metrics=None,
     ):
         self.client = client
@@ -44,6 +45,7 @@ class Generator:
         self.page_ttl_s = page_ttl_s
         self.prompt_version = prompt_version
         self.flight = SingleFlight() if coalesce else None
+        self.lease = lease  # cross-process coalescing (MongoLease), optional
         self.metrics = metrics
 
     def _count(self, name):
@@ -102,29 +104,54 @@ class Generator:
         value = self.cache.get(key)
         if value is not None:
             self._count("cache_hit")
-            return value, {"cache": "hit", "attempts": 0}
+            return value, {"cache": "hit", "attempts": 0, "model": meta["model"]}
         self._count("cache_miss")
 
         def produce():
             # Another leader may have filled the cache since our first check.
             value = self.cache.get(key)
             if value is not None:
-                return value, 0
-            completion = generate()  # raises LLMError; failures are never cached
-            self.cache.set(
-                key,
-                completion.value,
-                ttl_s=ttl_s,
-                prompt_version=self.prompt_version,
-                **meta,
-            )
-            return completion.value, completion.attempts
+                return value, {"cache": "hit", "attempts": 0, "model": meta["model"]}
+            leased = self.lease is None or self.lease.acquire(key)
+            if not leased:
+                # Another process is generating this key: wait for its result.
+                value = self.lease.wait_for(key, self.cache.get)
+                if value is not None:
+                    self._count("coalesced_cross_process")
+                    return value, {
+                        "cache": "peer",
+                        "attempts": 0,
+                        "model": meta["model"],
+                    }
+                leased = self.lease.acquire(key)  # peer failed or lease expired
+            try:
+                completion = generate()  # raises LLMError; failures are never cached
+                served_by = completion.model or meta["model"]
+                if served_by == meta["model"]:
+                    self.cache.set(
+                        key,
+                        completion.value,
+                        ttl_s=ttl_s,
+                        prompt_version=self.prompt_version,
+                        **meta,
+                    )
+                else:
+                    # A fallback model's answer is served but not cached, so the
+                    # primary model's answer replaces it once the primary recovers.
+                    self._count("fallback_served_uncached")
+            finally:
+                if self.lease is not None and leased:
+                    self.lease.release(key)
+            return completion.value, {
+                "cache": "miss",
+                "attempts": completion.attempts,
+                "model": served_by,
+            }
 
         if self.flight is None:
-            value, attempts = produce()
-            return value, {"cache": "miss", "attempts": attempts}
-        (value, attempts), shared = self.flight.do(key, produce)
+            return produce()
+        (value, info), shared = self.flight.do(key, produce)
         if shared:
             self._count("coalesced")
-            return value, {"cache": "coalesced", "attempts": 0}
-        return value, {"cache": "miss", "attempts": attempts}
+            return value, {**info, "cache": "coalesced", "attempts": 0}
+        return value, info

@@ -1,0 +1,144 @@
+{
+  "args": {
+    "requests": 800,
+    "unique": 3000,
+    "concurrency": 32,
+    "interval": 0.005,
+    "outage_start": 1.0,
+    "outage_end": 3.0,
+    "cooldown": 0.5,
+    "timeout": 0.3,
+    "deadline": 1.5,
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "out": "bench/results/2026-10-13"
+  },
+  "runs": {
+    "no fallback": [
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 0.93,
+          "p95_ms": 958.9444931392791
+        },
+        "during_outage": {
+          "requests": 164,
+          "valid_rate": 0.6585365853658537,
+          "p95_ms": 1022.5893850001739
+        },
+        "primary_calls_during_outage": 178
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 0.93125,
+          "p95_ms": 943.9779461710714
+        },
+        "during_outage": {
+          "requests": 169,
+          "valid_rate": 0.6863905325443787,
+          "p95_ms": 1029.2077919875737
+        },
+        "primary_calls_during_outage": 167
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 0.9225,
+          "p95_ms": 965.5942979326937
+        },
+        "during_outage": {
+          "requests": 149,
+          "valid_rate": 0.5838926174496645,
+          "p95_ms": 1030.040312471101
+        },
+        "primary_calls_during_outage": 181
+      }
+    ],
+    "fallback": [
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 443.4366502915509
+        },
+        "during_outage": {
+          "requests": 327,
+          "valid_rate": 1.0,
+          "p95_ms": 459.8385828197934
+        },
+        "primary_calls_during_outage": 138
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 441.1920893006027
+        },
+        "during_outage": {
+          "requests": 328,
+          "valid_rate": 1.0,
+          "p95_ms": 459.6628286788473
+        },
+        "primary_calls_during_outage": 125
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 438.65982223069295
+        },
+        "during_outage": {
+          "requests": 329,
+          "valid_rate": 1.0,
+          "p95_ms": 457.4759379902389
+        },
+        "primary_calls_during_outage": 138
+      }
+    ],
+    "fallback+breaker": [
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 203.40789789916016
+        },
+        "during_outage": {
+          "requests": 327,
+          "valid_rate": 1.0,
+          "p95_ms": 414.86689121229574
+        },
+        "primary_calls_during_outage": 26
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 161.32077884103637
+        },
+        "during_outage": {
+          "requests": 280,
+          "valid_rate": 1.0,
+          "p95_ms": 406.7081899207551
+        },
+        "primary_calls_during_outage": 19
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 228.8828610588098
+        },
+        "during_outage": {
+          "requests": 328,
+          "valid_rate": 1.0,
+          "p95_ms": 418.91024809447117
+        },
+        "primary_calls_during_outage": 28
+      }
+    ]
+  }
+}
