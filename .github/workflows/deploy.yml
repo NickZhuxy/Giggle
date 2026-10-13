@@ -1,0 +1,47 @@
+name: CD Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Backend Image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest .
+
+      - name: Build Frontend Image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest ./frontend
+
+      - name: Push Docker Images (only on push to main)
+        if: github.event_name == 'push'
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
+
+      - name: SSH into DigitalOcean and Deploy (only on push to main)
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.DO_SERVER_IP }}
+          username: ${{ secrets.DO_SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /srv/5-final-nofinal
+            docker compose pull
+            docker compose up -d
