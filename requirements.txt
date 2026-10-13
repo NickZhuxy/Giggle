@@ -4,3 +4,4 @@ pymongo
 openai
 python-dotenv
 gunicorn
+prometheus_client

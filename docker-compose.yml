@@ -1,23 +1,27 @@
 services:
   backend:
+    image: ${DOCKERHUB_USERNAME:-local}/giggle-backend:latest  # CD pulls this on the server
     build:
       context: .
-    container_name: backend
+    container_name: giggle-backend
     ports:
-      - "5441:5441"
+      - "127.0.0.1:5441:5441"  # local debugging only; users go through nginx
     env_file:
-      - .env
+      - path: .env
+        required: false  # demo mode needs no key
     environment:
       - MONGO_URI=mongodb://database:27017/fake_google
+      - TRUST_PROXY=1  # client IP comes from nginx's X-Forwarded-For
     depends_on:
       - database
     networks:
       - app-network
 
   frontend:
+    image: ${DOCKERHUB_USERNAME:-local}/giggle-frontend:latest
     build:
       context: ./frontend
-    container_name: frontend
+    container_name: giggle-frontend
     ports:
       - "3000:80"
     depends_on:
@@ -27,11 +31,38 @@ services:
 
   database:
     image: mongo:5.0
-    container_name: database
-    ports:
-      - "27017:27017"
+    container_name: giggle-database
+    # Not published: the backend reaches it on app-network.
+    # Debug with: docker compose exec database mongo fake_google
     volumes:
       - mongo-data:/data/db
+    networks:
+      - app-network
+
+  # Optional: docker compose --profile observability up -d
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["observability"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - app-network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["observability"]
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - prometheus
     networks:
       - app-network
 

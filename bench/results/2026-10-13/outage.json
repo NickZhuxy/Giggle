@@ -22,40 +22,40 @@
         "all": {
           "requests": 800,
           "valid_rate": 0.93,
-          "p95_ms": 958.9444931392791
+          "p95_ms": 962.7779625123367
         },
         "during_outage": {
-          "requests": 164,
-          "valid_rate": 0.6585365853658537,
-          "p95_ms": 1022.5893850001739
+          "requests": 162,
+          "valid_rate": 0.654320987654321,
+          "p95_ms": 1021.8062607367756
         },
-        "primary_calls_during_outage": 178
+        "primary_calls_during_outage": 179
       },
       {
         "all": {
           "requests": 800,
-          "valid_rate": 0.93125,
-          "p95_ms": 943.9779461710714
+          "valid_rate": 0.93,
+          "p95_ms": 950.366047618445
         },
         "during_outage": {
-          "requests": 169,
-          "valid_rate": 0.6863905325443787,
-          "p95_ms": 1029.2077919875737
+          "requests": 168,
+          "valid_rate": 0.6785714285714286,
+          "p95_ms": 1021.6871916985838
         },
         "primary_calls_during_outage": 167
       },
       {
         "all": {
           "requests": 800,
-          "valid_rate": 0.9225,
-          "p95_ms": 965.5942979326937
+          "valid_rate": 0.92625,
+          "p95_ms": 962.9315121943364
         },
         "during_outage": {
-          "requests": 149,
-          "valid_rate": 0.5838926174496645,
-          "p95_ms": 1030.040312471101
+          "requests": 140,
+          "valid_rate": 0.5785714285714286,
+          "p95_ms": 1033.969181543216
         },
-        "primary_calls_during_outage": 181
+        "primary_calls_during_outage": 176
       }
     ],
     "fallback": [
@@ -63,12 +63,12 @@
         "all": {
           "requests": 800,
           "valid_rate": 1.0,
-          "p95_ms": 443.4366502915509
+          "p95_ms": 443.2667190587381
         },
         "during_outage": {
           "requests": 327,
           "valid_rate": 1.0,
-          "p95_ms": 459.8385828197934
+          "p95_ms": 461.57608361681923
         },
         "primary_calls_during_outage": 138
       },
@@ -76,27 +76,27 @@
         "all": {
           "requests": 800,
           "valid_rate": 1.0,
-          "p95_ms": 441.1920893006027
-        },
-        "during_outage": {
-          "requests": 328,
-          "valid_rate": 1.0,
-          "p95_ms": 459.6628286788473
-        },
-        "primary_calls_during_outage": 125
-      },
-      {
-        "all": {
-          "requests": 800,
-          "valid_rate": 1.0,
-          "p95_ms": 438.65982223069295
+          "p95_ms": 441.5047833434073
         },
         "during_outage": {
           "requests": 329,
           "valid_rate": 1.0,
-          "p95_ms": 457.4759379902389
+          "p95_ms": 460.2702085103374
         },
-        "primary_calls_during_outage": 138
+        "primary_calls_during_outage": 126
+      },
+      {
+        "all": {
+          "requests": 800,
+          "valid_rate": 1.0,
+          "p95_ms": 441.6669187368825
+        },
+        "during_outage": {
+          "requests": 308,
+          "valid_rate": 1.0,
+          "p95_ms": 464.4346580345882
+        },
+        "primary_calls_during_outage": 135
       }
     ],
     "fallback+breaker": [
@@ -104,25 +104,25 @@
         "all": {
           "requests": 800,
           "valid_rate": 1.0,
-          "p95_ms": 203.40789789916016
+          "p95_ms": 192.74244761909358
         },
         "during_outage": {
-          "requests": 327,
+          "requests": 328,
           "valid_rate": 1.0,
-          "p95_ms": 414.86689121229574
+          "p95_ms": 426.1997419729596
         },
-        "primary_calls_during_outage": 26
+        "primary_calls_during_outage": 27
       },
       {
         "all": {
           "requests": 800,
           "valid_rate": 1.0,
-          "p95_ms": 161.32077884103637
+          "p95_ms": 160.85482085472904
         },
         "during_outage": {
-          "requests": 280,
+          "requests": 329,
           "valid_rate": 1.0,
-          "p95_ms": 406.7081899207551
+          "p95_ms": 384.9455630115699
         },
         "primary_calls_during_outage": 19
       },
@@ -130,14 +130,14 @@
         "all": {
           "requests": 800,
           "valid_rate": 1.0,
-          "p95_ms": 228.8828610588098
+          "p95_ms": 225.66802502260543
         },
         "during_outage": {
-          "requests": 328,
+          "requests": 331,
           "valid_rate": 1.0,
-          "p95_ms": 418.91024809447117
+          "p95_ms": 422.3236749880016
         },
-        "primary_calls_during_outage": 28
+        "primary_calls_during_outage": 29
       }
     ]
   }

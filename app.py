@@ -3,6 +3,7 @@
 import os
 import json
 import re
+import time
 import uuid
 import argparse
 from flask import Flask, request, jsonify, send_from_directory, Response, g
@@ -17,7 +18,12 @@ from harness.client import LLMClient, LLMError, OpenAIProvider
 from harness.fake import FaultyProvider
 from harness.fallback import FallbackProvider
 from harness.guard import MongoBudget, MongoRateLimiter, load_prices
-from harness.metrics import Metrics
+from harness.observability import (
+    PrometheusMetrics,
+    observe_request,
+    prometheus_payload,
+    request_logger,
+)
 from harness.service import Generator
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -37,17 +43,18 @@ CORS(app)  # Enable CORS for all routes
 if os.getenv("TRUST_PROXY") == "1":
     # Behind nginx: take the client IP from X-Forwarded-For (one proxy hop).
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-metrics = Metrics()
+metrics = PrometheusMetrics()
+request_log = request_logger()
 budget = MongoBudget(guard_state, float(os.getenv("GIGGLE_DAILY_BUDGET_USD", "5")))
 rate_limiter = MongoRateLimiter(
     guard_state, int(os.getenv("GIGGLE_RATE_LIMIT_PER_MIN", "30"))
 )
-provider = OpenAIProvider(client)
 if os.getenv("GIGGLE_FAKE_LLM") == "1":
     # Demo mode: no API key needed; a simulated provider invents everything.
     provider = FaultyProvider({}, latency_ms=(300, 900))
-elif os.getenv("FALLBACK_API_KEY"):
+else:
+    provider = OpenAIProvider(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
+if os.getenv("FALLBACK_API_KEY") and os.getenv("GIGGLE_FAKE_LLM") != "1":
     # Any OpenAI-compatible API works; DeepSeek is the default secondary.
     backup = OpenAI(
         api_key=os.getenv("FALLBACK_API_KEY"),
@@ -59,7 +66,9 @@ elif os.getenv("FALLBACK_API_KEY"):
         os.getenv("FALLBACK_MODEL", "deepseek-flash"),
         metrics=metrics,
     )
-llm = LLMClient(provider, metrics=metrics, budget=budget, prices=load_prices())
+# Demo mode calls no paid model, so it reports zero spend.
+prices = {} if os.getenv("GIGGLE_FAKE_LLM") == "1" else load_prices()
+llm = LLMClient(provider, metrics=metrics, budget=budget, prices=prices)
 generator = Generator(
     llm, MongoCache(llm_cache), lease=MongoLease(inflight), metrics=metrics
 )
@@ -92,6 +101,8 @@ LLM_ROUTES = {"search", "page_api", "roast_user"}
 def assign_request_id():
     """Give every request an ID that appears in logs and error responses."""
     g.request_id = uuid.uuid4().hex[:12]
+    g.started = time.perf_counter()
+    g.log_fields = {}
 
 
 @app.before_request
@@ -116,8 +127,24 @@ def limit_rate():
 
 @app.after_request
 def add_request_id(response):
-    """Echo the request ID so users can quote it in bug reports."""
+    """Echo the request ID, record latency, and write one JSON log line."""
     response.headers["X-Request-ID"] = g.get("request_id", "")
+    if request.path.startswith("/api/"):
+        seconds = time.perf_counter() - g.get("started", time.perf_counter())
+        route = request.endpoint or "unknown"
+        observe_request(route, response.status_code, seconds)
+        request_log.info(
+            "request",
+            extra={
+                "fields": {
+                    "request_id": g.get("request_id"),
+                    "route": route,
+                    "status": response.status_code,
+                    "duration_ms": round(seconds * 1000, 1),
+                    **g.get("log_fields", {}),
+                }
+            },
+        )
     return response
 
 
@@ -174,6 +201,7 @@ def search():
         return jsonify(error="Missing query parameter 'q'"), 400
 
     results, meta = generator.search(query)
+    g.log_fields = {"cache": meta["cache"], "model": meta["model"]}
     save_search_query(query, results)  # history feeds /api/roast
     return jsonify(
         {
@@ -193,6 +221,7 @@ def page_api():
         return jsonify(error="Missing `url` parameter"), 400
 
     content, meta = generator.page(url)
+    g.log_fields = {"cache": meta["cache"], "model": meta["model"]}
     return jsonify(
         {
             "content": content,
@@ -221,6 +250,13 @@ def _nonempty_text(text: str) -> str:
     if not text.strip():
         raise ValueError("empty response")
     return text.strip()
+
+
+@app.route("/metrics", methods=["GET"])
+def prometheus_metrics():
+    """Prometheus scrape endpoint (summed across gunicorn workers)."""
+    body, content_type = prometheus_payload()
+    return Response(body, mimetype=content_type)
 
 
 @app.route("/api/roast", methods=["GET"])

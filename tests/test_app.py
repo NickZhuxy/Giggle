@@ -155,3 +155,18 @@ def test_budget_exhausted_returns_503(client, fake_llm):
     assert res.status_code == 503
     assert res.get_json()["error"]["type"] == "budget_exceeded"
     assert provider.calls == 0
+
+def test_prometheus_endpoint_exposes_harness_counters(client, fake_llm):
+    fake_llm(good_results("x"))
+    client.get('/api/search?q=prom')
+    body = client.get('/metrics').get_data(as_text=True)
+    assert 'giggle_http_request_duration_seconds_bucket{le=' in body
+    assert 'route="search"' in body
+
+def test_json_log_line_has_request_fields():
+    import json, logging
+    from harness.observability import JsonFormatter
+    record = logging.LogRecord("giggle.requests", logging.INFO, "", 0, "request", None, None)
+    record.fields = {"request_id": "abc", "status": 200, "cache": "hit"}
+    line = json.loads(JsonFormatter().format(record))
+    assert line["request_id"] == "abc" and line["cache"] == "hit" and line["msg"] == "request"

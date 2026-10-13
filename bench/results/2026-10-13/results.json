@@ -27,8 +27,8 @@
         "max": 0.97
       },
       "full_rate": {
-        "mean": 0.8383333333333334,
-        "min": 0.6775,
+        "mean": 0.8375,
+        "min": 0.675,
         "max": 0.9525
       },
       "invalid_served_rate": {
@@ -42,9 +42,9 @@
         "max": 0.0325
       },
       "provider_calls_per_request": {
-        "mean": 0.23,
-        "min": 0.2225,
-        "max": 0.24
+        "mean": 0.23166666666666666,
+        "min": 0.2275,
+        "max": 0.2375
       },
       "retries": {
         "mean": 0,
@@ -52,9 +52,9 @@
         "max": 0
       },
       "cache_hits": {
-        "mean": 308,
-        "min": 304,
-        "max": 311
+        "mean": 307.3333333333333,
+        "min": 305,
+        "max": 309
       },
       "coalesced": {
         "mean": 0,
@@ -62,25 +62,25 @@
         "max": 0
       },
       "p50_ms": {
-        "mean": 0.006860995199531317,
-        "min": 0.005833484465256333,
-        "max": 0.008353992598131299
+        "mean": 0.006888993084430695,
+        "min": 0.005374982720240951,
+        "max": 0.00897949212230742
       },
       "p95_ms": {
-        "mean": 110.78350997898572,
-        "min": 105.25653893710114,
-        "max": 114.29393510625232
+        "mean": 110.38155556016136,
+        "min": 104.48138784558978,
+        "max": 116.2382142880233
       }
     },
     "B": {
       "valid_rate": {
-        "mean": 0.9858333333333333,
-        "min": 0.9825,
+        "mean": 0.9833333333333334,
+        "min": 0.98,
         "max": 0.9875
       },
       "full_rate": {
-        "mean": 0.9858333333333333,
-        "min": 0.9825,
+        "mean": 0.9833333333333334,
+        "min": 0.98,
         "max": 0.9875
       },
       "invalid_served_rate": {
@@ -89,19 +89,19 @@
         "max": 0.0
       },
       "error_rate": {
-        "mean": 0.014166666666666668,
+        "mean": 0.016666666666666666,
         "min": 0.0125,
-        "max": 0.0175
+        "max": 0.02
       },
       "provider_calls_per_request": {
-        "mean": 1.3016666666666665,
-        "min": 1.285,
-        "max": 1.335
+        "mean": 1.2983333333333333,
+        "min": 1.2825,
+        "max": 1.3275
       },
       "retries": {
-        "mean": 120.66666666666667,
-        "min": 114,
-        "max": 134
+        "mean": 119.33333333333333,
+        "min": 113,
+        "max": 131
       },
       "cache_hits": {
         "mean": 0,
@@ -114,26 +114,26 @@
         "max": 0
       },
       "p50_ms": {
-        "mean": 96.08952784522747,
-        "min": 93.42625000863336,
-        "max": 97.79583301860839
+        "mean": 96.22970166189286,
+        "min": 94.00439602904953,
+        "max": 98.99156299070455
       },
       "p95_ms": {
-        "mean": 326.2056567774077,
-        "min": 305.5335673416266,
-        "max": 349.7404464549618
+        "mean": 345.8312056454209,
+        "min": 313.7257541617146,
+        "max": 365.8439000049839
       }
     },
     "C": {
       "valid_rate": {
-        "mean": 0.995,
-        "min": 0.99,
-        "max": 0.9975
+        "mean": 0.9983333333333334,
+        "min": 0.9975,
+        "max": 1.0
       },
       "full_rate": {
-        "mean": 0.995,
-        "min": 0.99,
-        "max": 0.9975
+        "mean": 0.9983333333333334,
+        "min": 0.9975,
+        "max": 1.0
       },
       "invalid_served_rate": {
         "mean": 0.0,
@@ -141,24 +141,24 @@
         "max": 0.0
       },
       "error_rate": {
-        "mean": 0.005,
-        "min": 0.0025,
-        "max": 0.01
+        "mean": 0.0016666666666666668,
+        "min": 0.0,
+        "max": 0.0025
       },
       "provider_calls_per_request": {
-        "mean": 0.28583333333333333,
-        "min": 0.25,
-        "max": 0.3075
+        "mean": 0.2916666666666667,
+        "min": 0.255,
+        "max": 0.31
       },
       "retries": {
-        "mean": 26.666666666666668,
-        "min": 14,
+        "mean": 28,
+        "min": 15,
         "max": 35
       },
       "cache_hits": {
-        "mean": 312.3333333333333,
-        "min": 311,
-        "max": 314
+        "mean": 311.3333333333333,
+        "min": 310,
+        "max": 313
       },
       "coalesced": {
         "mean": 0,
@@ -166,14 +166,14 @@
         "max": 0
       },
       "p50_ms": {
-        "mean": 0.021465345829104383,
-        "min": 0.020062492694705725,
-        "max": 0.024021021090447903
+        "mean": 0.019812665414065123,
+        "min": 0.01810447429306805,
+        "max": 0.021208514226600528
       },
       "p95_ms": {
-        "mean": 178.38764697274505,
-        "min": 117.42869305890054,
-        "max": 209.67342288349755
+        "mean": 173.48141402568822,
+        "min": 116.68310004170053,
+        "max": 205.33140866318718
       }
     },
     "D": {
@@ -208,24 +208,24 @@
         "max": 21
       },
       "cache_hits": {
-        "mean": 302,
-        "min": 298,
+        "mean": 300.3333333333333,
+        "min": 292,
         "max": 309
       },
       "coalesced": {
-        "mean": 44.333333333333336,
+        "mean": 46,
         "min": 39,
-        "max": 47
+        "max": 53
       },
       "p50_ms": {
-        "mean": 0.017229166890804965,
-        "min": 0.007978989742696285,
-        "max": 0.022313004592433572
+        "mean": 0.0181111681740731,
+        "min": 0.01595850335434079,
+        "max": 0.02025000867433846
       },
       "p95_ms": {
-        "mean": 151.0679665535766,
-        "min": 121.14922260225285,
-        "max": 210.04986072075553
+        "mean": 154.22536119197807,
+        "min": 120.5392690753797,
+        "max": 218.33388361264952
       }
     }
   },
@@ -233,39 +233,39 @@
     "A": [
       {
         "valid_rate": 0.7,
-        "full_rate": 0.6775,
+        "full_rate": 0.675,
         "invalid_served_rate": 0.2725,
         "error_rate": 0.0275,
-        "provider_calls_per_request": 0.24,
+        "provider_calls_per_request": 0.2375,
         "retries": 0,
-        "cache_hits": 304,
+        "cache_hits": 305,
         "coalesced": 0,
-        "p50_ms": 0.008353992598131299,
-        "p95_ms": 112.80005589360371
+        "p50_ms": 0.005374982720240951,
+        "p95_ms": 110.425064546871
       },
       {
         "valid_rate": 0.9025,
         "full_rate": 0.885,
         "invalid_served_rate": 0.065,
         "error_rate": 0.0325,
-        "provider_calls_per_request": 0.2275,
+        "provider_calls_per_request": 0.23,
         "retries": 0,
-        "cache_hits": 309,
+        "cache_hits": 308,
         "coalesced": 0,
-        "p50_ms": 0.006395508535206318,
-        "p95_ms": 114.29393510625232
+        "p50_ms": 0.006312504410743713,
+        "p95_ms": 116.2382142880233
       },
       {
         "valid_rate": 0.97,
         "full_rate": 0.9525,
         "invalid_served_rate": 0.0175,
         "error_rate": 0.0125,
-        "provider_calls_per_request": 0.2225,
+        "provider_calls_per_request": 0.2275,
         "retries": 0,
-        "cache_hits": 311,
+        "cache_hits": 309,
         "coalesced": 0,
-        "p50_ms": 0.005833484465256333,
-        "p95_ms": 105.25653893710114
+        "p50_ms": 0.00897949212230742,
+        "p95_ms": 104.48138784558978
       }
     ],
     "B": [
@@ -278,70 +278,70 @@
         "retries": 114,
         "cache_hits": 0,
         "coalesced": 0,
-        "p50_ms": 97.04650050844066,
-        "p95_ms": 305.5335673416266
-      },
-      {
-        "valid_rate": 0.9875,
-        "full_rate": 0.9875,
-        "invalid_served_rate": 0.0,
-        "error_rate": 0.0125,
-        "provider_calls_per_request": 1.335,
-        "retries": 134,
-        "cache_hits": 0,
-        "coalesced": 0,
-        "p50_ms": 97.79583301860839,
-        "p95_ms": 349.7404464549618
+        "p50_ms": 95.69314596592449,
+        "p95_ms": 313.7257541617146
       },
       {
         "valid_rate": 0.9825,
         "full_rate": 0.9825,
         "invalid_served_rate": 0.0,
         "error_rate": 0.0175,
-        "provider_calls_per_request": 1.285,
-        "retries": 114,
+        "provider_calls_per_request": 1.3275,
+        "retries": 131,
         "cache_hits": 0,
         "coalesced": 0,
-        "p50_ms": 93.42625000863336,
-        "p95_ms": 323.3429565356346
+        "p50_ms": 98.99156299070455,
+        "p95_ms": 357.92396276956424
+      },
+      {
+        "valid_rate": 0.98,
+        "full_rate": 0.98,
+        "invalid_served_rate": 0.0,
+        "error_rate": 0.02,
+        "provider_calls_per_request": 1.2825,
+        "retries": 113,
+        "cache_hits": 0,
+        "coalesced": 0,
+        "p50_ms": 94.00439602904953,
+        "p95_ms": 365.8439000049839
       }
     ],
     "C": [
       {
-        "valid_rate": 0.99,
-        "full_rate": 0.99,
+        "valid_rate": 0.9975,
+        "full_rate": 0.9975,
         "invalid_served_rate": 0.0,
-        "error_rate": 0.01,
-        "provider_calls_per_request": 0.3,
-        "retries": 31,
+        "error_rate": 0.0025,
+        "provider_calls_per_request": 0.31,
+        "retries": 34,
+        "cache_hits": 310,
+        "coalesced": 0,
+        "p50_ms": 0.021208514226600528,
+        "p95_ms": 198.429733372177
+      },
+      {
+        "valid_rate": 0.9975,
+        "full_rate": 0.9975,
+        "invalid_served_rate": 0.0,
+        "error_rate": 0.0025,
+        "provider_calls_per_request": 0.31,
+        "retries": 35,
         "cache_hits": 311,
         "coalesced": 0,
-        "p50_ms": 0.020062492694705725,
-        "p95_ms": 208.06082497583702
+        "p50_ms": 0.02012500772252679,
+        "p95_ms": 205.33140866318718
       },
       {
-        "valid_rate": 0.9975,
-        "full_rate": 0.9975,
+        "valid_rate": 1.0,
+        "full_rate": 1.0,
         "invalid_served_rate": 0.0,
-        "error_rate": 0.0025,
-        "provider_calls_per_request": 0.3075,
-        "retries": 35,
-        "cache_hits": 312,
+        "error_rate": 0.0,
+        "provider_calls_per_request": 0.255,
+        "retries": 15,
+        "cache_hits": 313,
         "coalesced": 0,
-        "p50_ms": 0.024021021090447903,
-        "p95_ms": 209.67342288349755
-      },
-      {
-        "valid_rate": 0.9975,
-        "full_rate": 0.9975,
-        "invalid_served_rate": 0.0,
-        "error_rate": 0.0025,
-        "provider_calls_per_request": 0.25,
-        "retries": 14,
-        "cache_hits": 314,
-        "coalesced": 0,
-        "p50_ms": 0.020312523702159524,
-        "p95_ms": 117.42869305890054
+        "p50_ms": 0.01810447429306805,
+        "p95_ms": 116.68310004170053
       }
     ],
     "D": [
@@ -352,10 +352,10 @@
         "error_rate": 0.0025,
         "provider_calls_per_request": 0.19,
         "retries": 21,
-        "cache_hits": 298,
-        "coalesced": 47,
-        "p50_ms": 0.022313004592433572,
-        "p95_ms": 210.04986072075553
+        "cache_hits": 292,
+        "coalesced": 53,
+        "p50_ms": 0.02025000867433846,
+        "p95_ms": 218.33388361264952
       },
       {
         "valid_rate": 1.0,
@@ -366,8 +366,8 @@
         "retries": 16,
         "cache_hits": 309,
         "coalesced": 39,
-        "p50_ms": 0.021395506337285042,
-        "p95_ms": 121.14922260225285
+        "p50_ms": 0.01812499249354005,
+        "p95_ms": 123.80293088790495
       },
       {
         "valid_rate": 1.0,
@@ -376,10 +376,10 @@
         "error_rate": 0.0,
         "provider_calls_per_request": 0.155,
         "retries": 8,
-        "cache_hits": 299,
-        "coalesced": 47,
-        "p50_ms": 0.007978989742696285,
-        "p95_ms": 122.00481633772142
+        "cache_hits": 300,
+        "coalesced": 46,
+        "p50_ms": 0.01595850335434079,
+        "p95_ms": 120.5392690753797
       }
     ]
   }

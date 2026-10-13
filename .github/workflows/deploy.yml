@@ -1,47 +1,69 @@
 name: CD Deploy
 
+# Deploy after "Flask CI" passes on main, or on demand.
 on:
+  workflow_run:
+    workflows: ["Flask CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      HAS_SERVER: ${{ secrets.DO_SERVER_IP != '' }}
 
     steps:
-      - name: Checkout code
+      - name: Skip when deployment secrets are not configured
+        if: env.DOCKERHUB_USERNAME == ''
+        run: echo "::notice::DOCKERHUB_USERNAME is not set; nothing to deploy."
+
+      - name: Checkout the commit that passed CI
+        if: env.DOCKERHUB_USERNAME != ''
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Docker Buildx
+        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build Backend Image
+      - name: Build and push images (tagged latest and with the commit SHA)
+        if: env.DOCKERHUB_USERNAME != ''
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest .
+          SHA=${{ github.event.workflow_run.head_sha || github.sha }}
+          for svc in backend frontend; do
+            ctx=$([ "$svc" = backend ] && echo . || echo ./frontend)
+            docker build -t "$DOCKERHUB_USERNAME/giggle-$svc:latest" -t "$DOCKERHUB_USERNAME/giggle-$svc:$SHA" "$ctx"
+            docker push --all-tags "$DOCKERHUB_USERNAME/giggle-$svc"
+          done
 
-      - name: Build Frontend Image
-        run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest ./frontend
-
-      - name: Push Docker Images (only on push to main)
-        if: github.event_name == 'push'
-        run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
-
-      - name: SSH into DigitalOcean and Deploy (only on push to main)
-        if: github.event_name == 'push'
-        uses: appleboy/ssh-action@v0.1.6
+      - name: Deploy to the server over SSH
+        if: env.DOCKERHUB_USERNAME != '' && env.HAS_SERVER == 'true'
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DO_SERVER_IP }}
           username: ${{ secrets.DO_SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /srv/5-final-nofinal
-            docker compose pull
-            docker compose up -d
+            set -e
+            cd /srv/giggle
+            git pull --ff-only
+            export DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            docker compose pull backend frontend
+            docker compose up -d --no-build
+            docker image prune -f

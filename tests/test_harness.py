@@ -344,6 +344,9 @@ def test_cost_uses_model_prices():
     usage = {"prompt_tokens": 1_000_000, "completion_tokens": 500_000}
     assert cost_usd("m", usage, {"m": (2.0, 10.0)}) == 7.0
     assert cost_usd("unknown", usage, {"m": (2.0, 10.0)}) == 0.0
+    assert (
+        cost_usd("gpt-4", usage, {}) == 0.0
+    )  # empty table must not fall back to defaults
 
 
 def test_client_records_cost_and_stops_at_budget():
@@ -508,3 +511,47 @@ def test_two_workers_share_one_generation():
     t1.join()
     assert provider.calls == 1
     assert sorted(results) == ["miss", "peer"]
+
+
+# --- prompt evaluation script (offline, stub SDK) --------------------------------
+
+
+def test_prompt_eval_scores_strict_and_repaired_output():
+    from types import SimpleNamespace
+    from bench import prompt_eval
+
+    replies = iter(
+        [
+            good_results("q"),  # strict JSON
+            "```json\n" + good_results("q") + "\n```",  # valid only after repair
+            "Sure! Here you go.",  # invalid
+        ]
+    )
+
+    class StubSDK:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=300)
+                    msg = SimpleNamespace(content=next(replies))
+                    return SimpleNamespace(
+                        choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+                        usage=usage,
+                    )
+
+    rows = prompt_eval.run_pair(
+        StubSDK, "v1-original", "m", ["a", "b", "c"], 500, {"m": (1.0, 1.0)}
+    )
+    s = prompt_eval.summarize(rows)
+    assert [r["strict_parse"] for r in rows] == [True, False, False]
+    assert [r["valid"] for r in rows] == [True, True, False]
+    assert s["cost_per_1k_searches_usd"] == pytest.approx(0.4)
+
+
+def test_prompt_eval_json_mode_unwraps_results():
+    from bench import prompt_eval
+
+    wrapped = '{"results": ' + good_results("q") + "}"
+    assert prompt_eval.strict_parse(wrapped, "v3-json-mode")
+    assert len(parse_search_results(prompt_eval.unwrap(wrapped, "v3-json-mode"))) == 5

@@ -32,7 +32,8 @@ def load_prices() -> dict:
 
 def cost_usd(model: str, usage: dict, prices=None) -> float:
     """Cost of one call; unknown models cost 0 and should be added to prices."""
-    rate_in, rate_out = (prices or DEFAULT_PRICES).get(model, (0.0, 0.0))
+    table = DEFAULT_PRICES if prices is None else prices  # {} means "free"
+    rate_in, rate_out = table.get(model, (0.0, 0.0))
     return (
         usage.get("prompt_tokens", 0) * rate_in
         + usage.get("completion_tokens", 0) * rate_out

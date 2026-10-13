@@ -20,7 +20,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov pymongo flask flask-cors openai python-dotenv mongomock
+          pip install pytest pytest-cov pymongo flask flask-cors openai python-dotenv mongomock prometheus_client
 
       - name: Set environment variables
         run: echo "OPENAI_API_KEY=fake-key-for-testing" >> $GITHUB_ENV

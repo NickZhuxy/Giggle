@@ -43,20 +43,17 @@ Giggle keeps each invented page until the prompt changes. If you open the same U
 
 ```mermaid
 flowchart LR
-    subgraph Browser
-        UI["React app<br/>Search, Results, Page"]
-    end
-    subgraph Docker Compose
-        NGINX["nginx :3000<br/>static files + /api proxy"]
-        API["Flask API :5441<br/>+ LLM harness"]
-        MONGO[("MongoDB :27017<br/>llm_cache<br/>search_queries")]
-    end
-    LLM["OpenAI API<br/>GPT-4 / GPT-4o"]
-
-    UI --> NGINX
+    UI["React app"] --> NGINX["nginx :3000<br/>static files + /api proxy"]
     NGINX -- "/api/*" --> API
-    API <--> MONGO
-    API --> LLM
+    subgraph BACKEND["Backend: gunicorn, 4 workers"]
+        API["Flask routes<br/>rate limit, request ID"] --> GEN["Generator<br/>cache + coalescing"]
+        GEN --> CLIENT["LLM client<br/>budget, retries, validation"]
+        CLIENT --> FB["Fallback provider<br/>circuit breaker"]
+    end
+    FB --> OPENAI["OpenAI<br/>primary"]
+    FB -.-> BACKUP["DeepSeek or other<br/>OpenAI-compatible API"]
+    GEN <--> MONGO[("MongoDB<br/>cache, leases,<br/>budget, rate limits")]
+    API -- "/metrics" --> PROM["Prometheus + Grafana<br/>(optional profile)"]
 ```
 
 | Endpoint | What it does | Model | Cache |
@@ -65,16 +62,15 @@ flowchart LR
 | `GET /api/page?url=` | Invents an HTML page for a URL | GPT-4 | Until the prompt version changes |
 | `GET /api/search/history` | Lists your recent searches | — | — |
 | `GET /api/roast` | Writes a joke about your last 10 searches | GPT-4o | None |
-| `GET /api/metrics` | Shows counters for cache hits, provider calls, retries, and errors | — | — |
-
-Run the backend with `python app.py --crazy` to make the content more absurd and to change the watermark.
+| `GET /api/metrics` | Shows the counters of this worker process as JSON | — | — |
+| `GET /metrics` | Prometheus metrics, summed across all workers | — | — |
 
 ## Quick start
 
 ### Prerequisites
 
-- Docker 20.10 or later, with Docker Compose v2
-- An OpenAI API key
+- Docker 20.10 or later, with Docker Compose v2.24 or later
+- An OpenAI API key, if you do not use demo mode
 
 ### Procedure
 
@@ -85,13 +81,15 @@ Run the backend with `python app.py --crazy` to make the content more absurd and
    cd Giggle
    ```
 
-2. Copy the example settings file. Then put your key in `OPENAI_API_KEY` in `.env`:
+2. Copy the example settings file. Then do one of these steps in `.env`:
+   - Put your key in `OPENAI_API_KEY`.
+   - Or set `GIGGLE_FAKE_LLM=1` for demo mode. In demo mode, a simulated provider invents the content. You do not need a key, and the run costs nothing.
 
    ```sh
    cp .env.example .env
    ```
 
-3. Build and start the three services:
+3. Build and start the services:
 
    ```sh
    docker compose up -d --build
@@ -99,27 +97,38 @@ Run the backend with `python app.py --crazy` to make the content more absurd and
 
 4. Open http://localhost:3000.
 
+5. Optional: start Prometheus and Grafana too. Then open the dashboard at http://localhost:3001:
+
+   ```sh
+   docker compose --profile observability up -d
+   ```
+
+`.env.example` lists every setting: the daily budget, the rate limit, model prices, the fallback provider, and the number of workers.
+
 ### Run the tests
 
 The tests use a scripted fake provider, so they do not call OpenAI and do not need a key.
 
 ```sh
-python -m pip install pytest pytest-cov flask flask-cors pymongo openai python-dotenv mongomock
+python -m pip install pytest pytest-cov flask flask-cors pymongo openai python-dotenv mongomock prometheus_client
 OPENAI_API_KEY=test pytest --cov=app --cov=harness tests/test_app.py tests/test_frontend.py tests/test_harness.py
 ```
 
-The suite has 41 tests with 85% coverage (lines and branches) of `app.py` and `harness/`. Continuous integration (CI) fails if coverage drops below 80%. `tests/test_db.py` needs a running MongoDB; CI starts one.
+Continuous integration (CI) fails if coverage drops below 80%. `tests/test_db.py` needs a running MongoDB; CI starts one.
 
 ## Project structure
 
 ```text
-app.py              Flask API routes and structured errors
-harness/            LLM client, output checks, cache, coalescing, and metrics
-bench/              Benchmark with simulated faults, and saved results
-database/           MongoDB connection, models, and history queries
+app.py              Flask routes, rate limit, structured errors, logs
+harness/            LLM client, output checks, cache, coalescing, fallback,
+                    guardrails, and observability
+bench/              Benchmarks, the prompt evaluation, and saved results
+database/           MongoDB connection, collections, and indexes
 frontend/           React app, nginx settings, and Dockerfile
-tests/              pytest tests for the API, the harness, the database, and static file serving
-.github/workflows/  Lint, tests, and a manual Docker Hub deployment
+observability/      Prometheus settings and the Grafana dashboard
+gunicorn.conf.py    Worker settings and start-up tasks
+tests/              pytest tests for the API, the harness, the database, and static files
+.github/workflows/  Lint, tests, and continuous deployment (CD)
 ```
 
 ## Reliable LLM calls
@@ -128,48 +137,58 @@ A model API can be slow, fail, or return text that is not valid JSON. Every LLM 
 
 ```mermaid
 flowchart LR
-    REQ["Request"] --> KEY["Cache key<br/>query + model +<br/>prompt version"]
-    KEY --> HIT{"In cache?"}
+    REQ["Request"] --> RL{"Rate limit<br/>OK?"}
+    RL -- no --> R429["429 + Retry-After"]
+    RL -- yes --> HIT{"In cache?"}
     HIT -- yes --> OUT["Response"]
-    HIT -- no --> SF["Single-flight<br/>one call per key"]
-    SF --> CALL["Provider call<br/>with timeout"]
+    HIT -- no --> SF["Coalescing<br/>one call per key"]
+    SF --> BUD{"Budget<br/>left?"}
+    BUD -- no --> R503["503"]
+    BUD -- yes --> CALL["Provider call<br/>primary or fallback"]
     CALL --> VAL{"Valid output?"}
     VAL -- yes --> SAVE["Save to cache"] --> OUT
     VAL -- "no / timeout / 429" --> RETRY{"Attempts and<br/>deadline left?"}
     RETRY -- yes --> CALL
     RETRY -- no --> ERR["Structured error<br/>+ request ID"]
-    CALL -- "auth / bad request" --> ERR
 ```
 
-- **Validation.** The harness repairs JSON, then checks the type and content of each result. If a response is cut off, the harness keeps only complete results. It asks again if fewer than three are valid.
+- **Validation.** The harness repairs Markdown fences, trailing commas, invalid escapes, control characters, and invalid Unicode. Then it checks the type and content of each result. If a response is cut off, the harness keeps only complete results. It asks again if fewer than three are valid.
 - **Bounded retries.** Timeouts, rate limits, server errors, and unusable output cause a retry with exponential backoff. One request makes at most three calls and stops at a 45-second deadline. Authentication and request errors do not cause a retry.
 - **Correct caching.** The cache key contains the normalized query, the model, the prompt version, and the generation settings. A new prompt version makes old entries unusable. Failed calls are never cached.
-- **Coalescing.** When identical requests arrive at the same time, only the first request calls the model. The other requests wait and get the same result. This works in one server process only.
-- **Clear errors.** The API returns a `5xx` status with an error type and a request ID. It never returns keys or stack traces.
+- **Coalescing.** When identical requests arrive at the same time, only one request calls the model. Inside one process, the other requests wait on a lock. Across gunicorn workers, a lease document in MongoDB gives one worker the call, and the other workers wait for its result in the cache.
+- **Fallback.** If the primary provider times out, rate-limits, or is down, the call goes to a second provider. After 5 failures in a row, a circuit breaker skips the primary for 30 seconds. Fallback answers are served but not cached.
+- **Guardrails.** Each call is priced from its token counts. A daily budget, shared by all workers, stops model calls when it is spent. Each client IP address can send 30 requests per minute to the search, page, and roast endpoints.
+- **Clear errors.** The API returns a `4xx` or `5xx` status with an error type and a request ID. It never returns keys or stack traces.
 
-### Benchmark
+## Results
 
-The benchmark sends one request trace through four request paths. Each path adds one mechanism to the path before it. A simulated provider adds faults and latency.
+| What was measured | Result |
+| --- | --- |
+| Valid responses under 25% injected faults | 85.8% (original code) → 99.9% (harness, cache, and coalescing) |
+| Invalid output shown to users | 11.8% → 0% |
+| Provider calls saved by coalescing, compared with the cache only | 41% |
+| Provider calls saved by the cache | About equal to the share of repeated queries: 58% at 59% repeats |
+| Valid responses during a provider outage | 63.7% without fallback → 100% with fallback |
+| Calls to a dead provider stopped by the circuit breaker | 81% |
+| 20 identical concurrent requests across 4 worker processes | 1 provider call |
 
-```sh
-python -m bench.run_benchmark --out bench/results/latest
-```
+All results come from simulated providers. They are not measurements of the OpenAI API. Read [the benchmark details](docs/benchmarks.md) for the conditions, the commands, and the per-seed data.
 
-| Metric | A original | B harness | C + cache | D + coalescing |
-| --- | ---: | ---: | ---: | ---: |
-| Valid responses | 85.8% | 98.6% | 99.5% | 99.9% |
-| Invalid output served to user | 11.8% | 0.0% | 0.0% | 0.0% |
-| Errors returned | 2.4% | 1.4% | 0.5% | 0.1% |
-| Provider calls per request | 0.23 | 1.30 | 0.29 | 0.17 |
-| p95 latency (ms) | 111 | 326 | 178 | 151 |
+A real-model comparison of prompt versions and models is ready in `bench/prompt_eval.py`, but it has not been run yet.
 
-Conditions: 400 requests over 60 distinct queries with repeats, 16 concurrent clients, mean of 3 seeds. For each provider call, the simulated provider adds 25% faults: timeouts 4%, rate limits 6%, prose instead of JSON 6%, truncated output 5%, and wrong fields 4%. These numbers come from a simulation. They are not measurements of the OpenAI API. See [`bench/results/2026-10-13/`](bench/results/2026-10-13/) for the results of each seed.
+## Observability
 
-What the results show:
+Each request writes one JSON log line with its request ID, route, status, latency, cache result, and model. The `/metrics` endpoint gives Prometheus the counters of all workers. The Grafana dashboard shows traffic, latency, the cache hit ratio, spend, provider errors, and fallbacks.
 
-- The original path cached any output that it could parse, including results with wrong fields. It then served that output again for 30 minutes.
-- Retries make the harness correct, but they cost more calls (B). The cache removes most of that cost (C). Coalescing removes duplicate calls for popular queries: 40% fewer provider calls than C.
-- The harness has a higher p95 latency than the original path, because a retry takes time. A fast error is not a useful response.
+<p align="center">
+  <img src="docs/images/grafana-dashboard.png" alt="Grafana dashboard during a demo-mode load test" width="900">
+</p>
+
+<p align="center"><i>Demo mode, 12 clients for two minutes, starting with an empty cache. The hit ratio rises to about 98%, and p95 search latency falls as the cache fills. Spend stays at $0 because demo mode calls no paid model.</i></p>
+
+## Deployment
+
+The `CD Deploy` workflow starts after `Flask CI` passes on `main`. It builds the backend and frontend images, pushes them to Docker Hub with the `latest` tag and the commit tag, and then updates the server over SSH. If the secrets are not set, the workflow skips these steps. Set these repository secrets to turn on deployment: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `DO_SERVER_IP`, `DO_SSH_USER`, and `SSH_PRIVATE_KEY`. The server must have a clone of this repository at `/srv/giggle` and a `.env` file.
 
 ## Team
 

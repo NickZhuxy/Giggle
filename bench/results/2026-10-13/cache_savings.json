@@ -24,15 +24,15 @@
       "distinct_query_pool": 20000,
       "repeat_share": 0.5900000000000001,
       "calls_cache_off": 1000,
-      "calls_cache_on": 419,
-      "reduction": 0.581
+      "calls_cache_on": 420,
+      "reduction": 0.5800000000000001
     },
     {
       "distinct_query_pool": 3000,
       "repeat_share": 0.6659999999999999,
       "calls_cache_off": 1000,
-      "calls_cache_on": 343,
-      "reduction": 0.657
+      "calls_cache_on": 341,
+      "reduction": 0.659
     },
     {
       "distinct_query_pool": 600,
